@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Manual Dot Placement with Zoom & Pan</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: start;
+      padding: 10px;
+      background: #f0f0f0;
+      font-family: sans-serif;
+    }
+    canvas {
+      border: 2px solid #333;
+      background-color: white;
+      margin-top: 10px;
+      cursor: grab;
+      touch-action: none;
+      max-width: 100%;
+      height: auto;
+    }
+    canvas:active {
+      cursor: grabbing;
+    }
+    select, button, input {
+      padding: 6px;
+      font-size: 14px;
+      margin: 4px;
+    }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    @media (max-width: 600px) {
+      canvas {
+        width: 100% !important;
+        height: auto !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <label>Pilih warna titik:
+      <select id="colorPicker">
+        <option value="red">Merah</option>
+        <option value="green">Hijau</option>
+        <option value="blue">Biru</option>
+        <option value="yellow">Kuning</option>
+        <option value="magenta">Magenta</option>
+        <option value="cyan">Cyan</option>
+        <option value="orange">Oranye</option>
+      </select>
+    </label>
+    <button id="undoButton">Undo</button>
+    <input type="number" id="searchX" placeholder="X"> <input type="number" id="searchY" placeholder="Y">
+    <button id="searchBtn">Cari Titik</button>
+    <button id="saveBtn">Simpan Titik</button>
+  </div>
+
+  <canvas id="gridCanvas" width="1000" height="1000"></canvas>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
+    import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBi0pF8GL6mMNBSIZbXWdcbXP0im2qFo2E",
+      authDomain: "coord-supply.firebaseapp.com",
+      databaseURL: "https://coord-supply-default-rtdb.firebaseio.com",
+      projectId: "coord-supply",
+      storageBucket: "coord-supply.firebasestorage.app",
+      messagingSenderId: "409202953002",
+      appId: "1:409202953002:web:62af95dcf62d2b2e396c53",
+      measurementId: "G-EGCJV6ZLFX"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const dotsRef = ref(db, 'dots');
+
+    const canvas = document.getElementById('gridCanvas');
+    const ctx = canvas.getContext('2d');
+    const colorPicker = document.getElementById('colorPicker');
+    const undoButton = document.getElementById('undoButton');
+    const searchX = document.getElementById('searchX');
+    const searchY = document.getElementById('searchY');
+    const searchBtn = document.getElementById('searchBtn');
+    const saveBtn = document.getElementById('saveBtn');
+
+    const cols = 13;
+    const rows = 13;
+    const baseCellSize = 75;
+    const baseCenterSize = 100;
+    const centerIndex = 6;
+    let dots = [];
+
+    let zoom = 1;
+    let offsetX = 0;
+    let offsetY = 0;
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let searchHighlight = null;
+
+    onValue(dotsRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        dots = data;
+        drawGrid();
+      }
+    });
+
+    function saveToFirebase() {
+      set(dotsRef, dots);
+    }
+
+    function getCellSize(index) {
+      return index === centerIndex ? baseCenterSize * zoom : baseCellSize * zoom;
+    }
+
+    function getPosition(index) {
+      let pos = 0;
+      for (let i = 0; i < index; i++) {
+        pos += getCellSize(i);
+      }
+      return pos;
+    }
+
+    function drawGrid() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const x = offsetX + getPosition(col);
+          const y = offsetY + getPosition(row);
+          const w = getCellSize(col);
+          const h = getCellSize(row);
+
+          ctx.fillStyle = (row === centerIndex && col === centerIndex) ? 'gold' : '#ddd';
+          ctx.fillRect(x, y, w, h);
+
+          ctx.strokeStyle = '#999';
+          ctx.strokeRect(x, y, w, h);
+        }
+      }
+
+      dots.forEach(dot => {
+        ctx.beginPath();
+        ctx.fillStyle = dot.color;
+        ctx.arc(dot.x * zoom + offsetX, dot.y * zoom + offsetY, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'black';
+        ctx.stroke();
+      });
+
+      if (searchHighlight) {
+        ctx.beginPath();
+        ctx.arc(searchHighlight.x * zoom + offsetX, searchHighlight.y * zoom + offsetY, 10, 0, Math.PI * 2);
+        ctx.strokeStyle = 'red';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+
+    canvas.addEventListener('click', (e) => {
+      if (searchHighlight) {
+        searchHighlight = null;
+        drawGrid();
+        return;
+      }
+      if (isDragging) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left - offsetX) / zoom;
+      const y = (e.clientY - rect.top - offsetY) / zoom;
+
+      const index = dots.findIndex(dot => Math.abs(dot.x - x) < 5 && Math.abs(dot.y - y) < 5);
+      if (index !== -1) {
+        dots.splice(index, 1);
+      } else {
+        dots.push({ x, y, color: colorPicker.value });
+      }
+      saveToFirebase();
+    });
+
+    undoButton.addEventListener('click', () => {
+      dots.pop();
+      saveToFirebase();
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
+        dots.pop();
+        saveToFirebase();
+      }
+    });
+
+    canvas.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = (e.clientX - rect.left);
+      const mouseY = (e.clientY - rect.top);
+
+      if (isDragging) {
+        offsetX += e.clientX - dragStartX;
+        offsetY += e.clientY - dragStartY;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        drawGrid();
+      } else {
+        drawGrid();
+        drawTooltip(mouseX, mouseY, `X: ${Math.floor((mouseX - offsetX) / zoom)} | Y: ${Math.floor((mouseY - offsetY) / zoom)}`);
+      }
+    });
+
+    canvas.addEventListener('mouseup', () => {
+      isDragging = false;
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+      isDragging = false;
+      drawGrid();
+    });
+
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const zoomFactor = 0.1;
+      const oldZoom = zoom;
+      const mouseX = e.offsetX;
+      const mouseY = e.offsetY;
+
+      if (e.deltaY < 0) {
+        zoom = Math.min(3, zoom + zoomFactor);
+      } else {
+        zoom = Math.max(0.5, zoom - zoomFactor);
+      }
+
+      offsetX = mouseX - ((mouseX - offsetX) * (zoom / oldZoom));
+      offsetY = mouseY - ((mouseY - offsetY) * (zoom / oldZoom));
+
+      drawGrid();
+    });
+
+    function drawTooltip(x, y, text) {
+      ctx.font = '14px sans-serif';
+      const padding = 6;
+      const textWidth = ctx.measureText(text).width;
+      const boxWidth = textWidth + padding * 2;
+      const boxHeight = 24;
+
+      let drawX = x + 10;
+      let drawY = y + 10;
+
+      if (drawX + boxWidth > canvas.width) drawX = x - boxWidth - 10;
+      if (drawY + boxHeight > canvas.height) drawY = y - boxHeight - 10;
+
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+      ctx.fillRect(drawX, drawY, boxWidth, boxHeight);
+
+      ctx.fillStyle = 'white';
+      ctx.fillText(text, drawX + padding, drawY + 17);
+    }
+
+    searchBtn.addEventListener('click', () => {
+      const sx = parseFloat(searchX.value);
+      const sy = parseFloat(searchY.value);
+      if (isNaN(sx) || isNaN(sy)) return;
+
+      searchHighlight = { x: sx, y: sy };
+      drawGrid();
+    });
+
+    saveBtn.addEventListener('click', () => {
+      const json = JSON.stringify(dots);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'dots.json';
+      a.click();
+    });
+
+    drawGrid();
+  </script>
+</body>
+</html>
