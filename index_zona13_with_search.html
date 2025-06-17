@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Game Map Editor - Zona 13 Salib</title>
+  <style>
+    body { font-family: sans-serif; margin: 10px; background: #1e1e2f; color: white; }
+    canvas { border: 1px solid #555; display: block; margin: 0 auto; background: #222; }
+    label, button, input { display: block; margin-top: 10px; }
+    #markList { margin-top: 20px; }
+    .mark-item { cursor: pointer; margin-bottom: 5px; }
+    .mark-item:hover { text-decoration: underline; color: lightblue; }
+  </style>
+</head>
+<body>
+
+<h2>🗺️ Game Map Editor - Zona 13 Struktur Salib</h2>
+
+<label>
+  🎨 Pilih warna titik:
+  <input type="color" id="colorPicker" value="#00ff00">
+</label>
+
+<label>
+  🏷️ Label titik (opsional):
+  <input type="text" id="tileLabel" placeholder="Supply, Boss, etc">
+</label>
+
+<label>
+  🔍 Cari koordinat (X,Y): 
+  <input type="number" id="searchX" placeholder="X" style="width: 60px;">
+  <input type="number" id="searchY" placeholder="Y" style="width: 60px;">
+  <button onclick="goToXY()">📌 Temukan</button>
+</label>
+
+<button onclick="saveMap()">💾 Simpan Map</button>
+<input type="file" id="loadMapFile" accept=".json">
+
+<canvas id="gameMap" width="1000" height="1000"></canvas>
+
+<div id="markList">
+  <h3>📍 Daftar Mark:</h3>
+  <div id="markItems"></div>
+</div>
+
+<script>
+  const canvas = document.getElementById('gameMap');
+  const ctx = canvas.getContext('2d');
+  const colorPicker = document.getElementById('colorPicker');
+  const tileLabelInput = document.getElementById('tileLabel');
+  const markItems = document.getElementById('markItems');
+
+  const tileSize = 10;
+  const mapData = {};
+
+  function drawGrid() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw tiles (10x10 each)
+    for (let x = 0; x < canvas.width; x += tileSize) {
+      for (let y = 0; y < canvas.height; y += tileSize) {
+        const key = x + "," + y;
+        if (mapData[key]) {
+          drawMarker(x, y, mapData[key].color, mapData[key].label);
+        }
+      }
+    }
+
+    updateMarkList();
+    drawZones();
+  }
+
+  function drawMarker(x, y, color, label) {
+    ctx.beginPath();
+    ctx.arc(x + tileSize / 2, y + tileSize / 2, tileSize / 3, 0, 2 * Math.PI);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = "black";
+    ctx.stroke();
+
+    if (label) {
+      ctx.fillStyle = "white";
+      ctx.font = "7px sans-serif";
+      ctx.fillText(label, x + 1, y + tileSize - 2);
+    }
+  }
+
+  function drawZones() {
+    const boxSize = 75;
+    const centerSize = 100;
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+
+    // Draw 12 surrounding zones in cross shape
+    for (let i = -6; i <= 6; i++) {
+      if (i !== 0) {
+        // Horizontal
+        let x = centerX + i * boxSize;
+        let y = centerY - centerSize / 2;
+        ctx.beginPath();
+        ctx.rect(x, y, boxSize, boxSize);
+        ctx.strokeStyle = "rgba(255,255,255,0.5)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // Vertical
+        x = centerX - centerSize / 2;
+        y = centerY + i * boxSize;
+        ctx.beginPath();
+        ctx.rect(x, y, boxSize, boxSize);
+        ctx.strokeStyle = "rgba(255,255,255,0.5)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    }
+
+    // Draw center zone
+    ctx.beginPath();
+    ctx.rect(centerX - centerSize / 2, centerY - centerSize / 2, centerSize, centerSize);
+    ctx.strokeStyle = "white";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.lineWidth = 1;
+  }
+
+  function updateMarkList() {
+    markItems.innerHTML = "";
+    for (const key in mapData) {
+      const tile = mapData[key];
+      if (tile.label) {
+        const item = document.createElement("div");
+        item.className = "mark-item";
+        item.textContent = `${tile.label} (${key})`;
+        item.onclick = () => highlightTile(key);
+        markItems.appendChild(item);
+      }
+    }
+  }
+
+  function highlightTile(key) {
+    const [x, y] = key.split(',').map(Number);
+    ctx.strokeStyle = "red";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, tileSize, tileSize);
+    ctx.lineWidth = 1;
+  }
+
+  function goToXY() {
+    const x = parseInt(document.getElementById("searchX").value);
+    const y = parseInt(document.getElementById("searchY").value);
+    if (!isNaN(x) && !isNaN(y)) {
+      const gx = Math.floor(x / tileSize) * tileSize;
+      const gy = Math.floor(y / tileSize) * tileSize;
+      drawGrid();
+      ctx.strokeStyle = "cyan";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(gx, gy, tileSize, tileSize);
+      ctx.lineWidth = 1;
+    }
+  }
+
+  canvas.addEventListener('click', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.floor((e.clientX - rect.left) / tileSize) * tileSize;
+    const y = Math.floor((e.clientY - rect.top) / tileSize) * tileSize;
+    const color = colorPicker.value;
+    const label = tileLabelInput.value.trim();
+    mapData[`${x},${y}`] = { color, label };
+    drawGrid();
+  });
+
+  function saveMap() {
+    const json = JSON.stringify(mapData);
+    const blob = new Blob([json], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'map_zona13.json';
+    link.click();
+  }
+
+  document.getElementById('loadMapFile').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    const reader = new FileReader();
+    reader.onload = function(event) {
+      Object.assign(mapData, JSON.parse(event.target.result));
+      drawGrid();
+    };
+    reader.readAsText(file);
+  });
+
+  drawGrid();
+</script>
+
+</body>
+</html>
