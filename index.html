@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Manual Dot Placement with Zoom & Pan</title>
+  <title>Advanced Dot Canvas</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     body {
@@ -20,7 +20,7 @@
       background-color: white;
       margin-top: 10px;
       cursor: grab;
-      touch-action: none;
+      touch-action: none; /* Penting untuk mencegah browser scroll/zoom default */
       max-width: 100%;
       height: auto;
     }
@@ -36,11 +36,50 @@
       display: flex;
       flex-wrap: wrap;
       justify-content: center;
+      gap: 5px;
+      /* Tambahan untuk responsivitas toolbar di mobile */
+      width: 100%; /* Agar memenuhi lebar layar */
+      box-sizing: border-box; /* Padding dihitung dalam lebar */
+      padding: 0 10px; /* Sedikit padding di samping */
+    }
+    #contextMenu {
+      position: absolute;
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      z-index: 1000;
+      min-width: 120px;
+      display: none; /* Default hidden */
+    }
+    .menu-item {
+      padding: 8px 12px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .menu-item:hover {
+      background: #f0f0f0;
+    }
+    /* Style for buttons that toggle visibility */
+    .toolbar-hidden {
+        display: none !important;
     }
     @media (max-width: 600px) {
       canvas {
         width: 100% !important;
         height: auto !important;
+      }
+      /* Penyesuaian untuk toolbar di layar kecil */
+      .toolbar label, .toolbar select, .toolbar button, .toolbar input {
+        width: calc(50% - 8px); /* 2 kolom per baris, kurangi gap */
+        box-sizing: border-box;
+      }
+      .toolbar label {
+        width: 100%; /* Label bisa 1 kolom */
+        text-align: center;
+      }
+      .toolbar input {
+        width: calc(50% - 8px); /* Input X dan Y */
       }
     }
   </style>
@@ -59,12 +98,22 @@
       </select>
     </label>
     <button id="undoButton">Undo</button>
-    <input type="number" id="searchX" placeholder="X"> <input type="number" id="searchY" placeholder="Y">
+    <input type="number" id="searchX" placeholder="X">
+    <input type="number" id="searchY" placeholder="Y">
     <button id="searchBtn">Cari Titik</button>
+    <button id="addDotBtn">Tambah Titik</button>
     <button id="saveBtn">Simpan Titik</button>
+
+    <button id="deleteSelectedDotBtn" class="toolbar-hidden">Hapus Titik Terpilih</button>
+    <button id="changeSelectedDotColorBtn" class="toolbar-hidden">Ganti Warna Terpilih</button>
   </div>
 
   <canvas id="gridCanvas" width="1000" height="1000"></canvas>
+
+  <div id="contextMenu">
+    <div class="menu-item" id="deleteOption">Hapus Titik</div>
+    <div class="menu-item" id="changeColorOption">Ganti Warna</div>
+  </div>
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
@@ -75,7 +124,7 @@
       authDomain: "coord-supply.firebaseapp.com",
       databaseURL: "https://coord-supply-default-rtdb.firebaseio.com",
       projectId: "coord-supply",
-      storageBucket: "coord-supply.firebasestorage.app",
+      storageBucket: "coord-supply.appspot.com",
       messagingSenderId: "409202953002",
       appId: "1:409202953002:web:62af95dcf62d2b2e396c53",
       measurementId: "G-EGCJV6ZLFX"
@@ -85,38 +134,60 @@
     const db = getDatabase(app);
     const dotsRef = ref(db, 'dots');
 
+    // DOM Elements
     const canvas = document.getElementById('gridCanvas');
     const ctx = canvas.getContext('2d');
     const colorPicker = document.getElementById('colorPicker');
+    const contextMenu = document.getElementById('contextMenu');
+    const deleteOption = document.getElementById('deleteOption');
+    const changeColorOption = document.getElementById('changeColorOption');
     const undoButton = document.getElementById('undoButton');
     const searchX = document.getElementById('searchX');
     const searchY = document.getElementById('searchY');
     const searchBtn = document.getElementById('searchBtn');
+    const addDotBtn = document.getElementById('addDotBtn');
     const saveBtn = document.getElementById('saveBtn');
+    const deleteSelectedDotBtn = document.getElementById('deleteSelectedDotBtn');
+    const changeSelectedDotColorBtn = document.getElementById('changeSelectedDotColorBtn');
 
+    // Grid Constants
     const cols = 13;
     const rows = 13;
     const baseCellSize = 75;
     const baseCenterSize = 100;
     const centerIndex = 6;
-    let dots = [];
 
+    // State Variables
+    let dots = [];
     let zoom = 1;
     let offsetX = 0;
     let offsetY = 0;
-    let isDragging = false;
-    let dragStartX = 0;
-    let dragStartY = 0;
+    let hoveredDot = null;
+    let selectedDot = null;
     let searchHighlight = null;
 
+    // --- Variables for Click/Drag/Long Press Logic ---
+    let isDragging = false;
+    let isClicking = false;
+    let longPressTimer = null;
+    const longPressThreshold = 500;
+    const clickTolerance = 5;
+    let lastMouseDownX = 0;
+    let lastMouseDownY = 0;
+    let dotUnderMouseDownIndex = null;
+
+    // --- Variables for Touch Events ---
+    let lastPinchDistance = null; // For pinch-to-zoom
+    let isTouching = false; // Flag to distinguish touch from mouse events
+
+    // Firebase Data Listener
     onValue(dotsRef, (snapshot) => {
       const data = snapshot.val();
-      if (data) {
-        dots = data;
-        drawGrid();
-      }
+      dots = data ? data : [];
+      drawGrid();
     });
 
+    // --- Core Functions ---
     function saveToFirebase() {
       set(dotsRef, dots);
     }
@@ -136,6 +207,13 @@
     function drawGrid() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+      // --- RESET PROPERTI SHADOW DI SINI ---
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
+      // --- END RESET ---
+
+      // Draw grid cells
       for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
           const x = offsetX + getPosition(col);
@@ -145,96 +223,322 @@
 
           ctx.fillStyle = (row === centerIndex && col === centerIndex) ? 'gold' : '#ddd';
           ctx.fillRect(x, y, w, h);
-
           ctx.strokeStyle = '#999';
+          ctx.lineWidth = 1;
           ctx.strokeRect(x, y, w, h);
         }
       }
 
-      dots.forEach(dot => {
+      // Draw dots
+      dots.forEach((dot, index) => {
+        const dotX = dot.x * zoom + offsetX;
+        const dotY = dot.y * zoom + offsetY;
+        
         ctx.beginPath();
         ctx.fillStyle = dot.color;
-        ctx.arc(dot.x * zoom + offsetX, dot.y * zoom + offsetY, 5, 0, Math.PI * 2);
+        
+        // Hover effect (only for mouse, not touch)
+        if (!isTouching && index === hoveredDot) { // Only show hover for mouse
+          ctx.arc(dotX, dotY - 5, 7, 0, Math.PI * 2);
+          ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+          ctx.shadowBlur = 5;
+          ctx.shadowOffsetY = 3;
+        } else {
+          ctx.arc(dotX, dotY, 5, 0, Math.PI * 2);
+          ctx.shadowColor = 'transparent';
+          ctx.shadowBlur = 0;
+          ctx.shadowOffsetY = 0;
+        }
+        
         ctx.fill();
         ctx.strokeStyle = 'black';
+        ctx.lineWidth = 1;
         ctx.stroke();
+
+        // Highlight selected dot
+        if (index === selectedDot) {
+            ctx.beginPath();
+            ctx.arc(dotX, dotY, 9, 0, Math.PI * 2);
+            ctx.strokeStyle = 'purple';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        // Show coordinates on hover (only for mouse, not touch)
+        if (!isTouching && index === hoveredDot) { // Only show hover for mouse
+          drawCoordinateTooltip(dotX, dotY - 15, `X: ${Math.round(dot.x)}, Y: ${Math.round(dot.y)}`);
+        }
       });
 
+      // Highlight search result
       if (searchHighlight) {
         ctx.beginPath();
-        ctx.arc(searchHighlight.x * zoom + offsetX, searchHighlight.y * zoom + offsetY, 10, 0, Math.PI * 2);
+        ctx.arc(
+          searchHighlight.x * zoom + offsetX,
+          searchHighlight.y * zoom + offsetY,
+          10, 0, Math.PI * 2
+        );
         ctx.strokeStyle = 'red';
         ctx.lineWidth = 2;
         ctx.stroke();
       }
     }
 
-    canvas.addEventListener('click', (e) => {
-      if (searchHighlight) {
+    // --- Helper Functions ---
+    function showContextMenu(x, y) {
+      contextMenu.style.display = 'block';
+      contextMenu.style.left = `${x}px`;
+      contextMenu.style.top = `${y}px`;
+    }
+
+    function hideContextMenu() {
+      contextMenu.style.display = 'none';
+    }
+
+    function findNearestDot(x, y) {
+      for (let i = 0; i < dots.length; i++) {
+        const dotX = dots[i].x * zoom + offsetX;
+        const dotY = dots[i].y * zoom + offsetY;
+        if (Math.hypot(x - dotX, y - dotY) < 10) {
+          return i;
+        }
+      }
+      return -1;
+    }
+
+    function drawCoordinateTooltip(x, y, text) {
+      ctx.font = '12px sans-serif';
+      const padding = 4;
+      const textWidth = ctx.measureText(text).width;
+      const boxWidth = textWidth + padding * 2;
+      const boxHeight = 20;
+
+      let drawX = x - boxWidth / 2;
+      let drawY = y - 30;
+
+      if (drawX < 0) drawX = 0;
+      if (drawX + boxWidth > canvas.width) drawX = canvas.width - boxWidth;
+      if (drawY < 0) drawY = y + 20;
+
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+      ctx.fillRect(drawX, drawY, boxWidth, boxHeight);
+      ctx.fillStyle = 'white';
+      ctx.fillText(text, drawX + padding, drawY + 14);
+    }
+
+    function updateToolbarButtonsVisibility() {
+        if (selectedDot !== null) {
+            deleteSelectedDotBtn.classList.remove('toolbar-hidden');
+            changeSelectedDotColorBtn.classList.remove('toolbar-hidden');
+        } else {
+            deleteSelectedDotBtn.classList.add('toolbar-hidden');
+            changeSelectedDotColorBtn.classList.add('toolbar-hidden');
+        }
+    }
+
+    // --- Event Listeners (Mouse & Touch) ---
+
+    // Unified Mousedown/Touchstart Logic
+    function handlePointerDown(e) {
+        // Prevent default browser actions for touch
+        if (e.type === 'touchstart') {
+            e.preventDefault();
+            isTouching = true;
+        } else {
+            isTouching = false;
+        }
+
+        hideContextMenu();
         searchHighlight = null;
+
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+        const mouseX = clientX - rect.left;
+        const mouseY = clientY - rect.top;
+
+        lastMouseDownX = mouseX;
+        lastMouseDownY = mouseY;
+        dotUnderMouseDownIndex = findNearestDot(mouseX, mouseY);
+
+        // Handle multi-touch for pinch-to-zoom
+        if (e.touches && e.touches.length === 2) {
+            lastPinchDistance = Math.hypot(
+                e.touches[1].clientX - e.touches[0].clientX,
+                e.touches[1].clientY - e.touches[0].clientY
+            );
+            isClicking = false; // Not a click/long press if pinching
+            isDragging = false; // Not dragging either
+            clearTimeout(longPressTimer);
+        } else {
+            // Start timer for long press
+            longPressTimer = setTimeout(() => {
+                if (dotUnderMouseDownIndex !== -1) {
+                    selectedDot = dotUnderMouseDownIndex;
+                    updateToolbarButtonsVisibility();
+                    showContextMenu(clientX, clientY); // Use clientX/Y for screen position
+                    drawGrid();
+                }
+                isClicking = false;
+            }, longPressThreshold);
+
+            isClicking = true;
+            isDragging = false;
+        }
+
+        if (dotUnderMouseDownIndex === -1 && selectedDot !== null) {
+            selectedDot = null;
+            updateToolbarButtonsVisibility();
+            drawGrid();
+        }
+    }
+
+    // Unified Mousemove/Touchmove Logic
+    function handlePointerMove(e) {
+        // Prevent default browser actions for touch
+        if (e.type === 'touchmove') {
+            e.preventDefault();
+        }
+        
+        // If not pressing mouse/touch, or if pinching, just update hover and return
+        if (!isClicking && !isDragging && (!e.touches || e.touches.length === 0)) {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            const currentHover = findNearestDot(mouseX, mouseY);
+            if (currentHover !== hoveredDot) {
+                hoveredDot = currentHover;
+                drawGrid();
+            }
+            canvas.style.cursor = currentHover !== -1 ? 'pointer' : 'grab';
+            return; // Exit early if not actively interacting
+        }
+
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        const mouseX = clientX - rect.left;
+        const mouseY = clientY - rect.top;
+
+        // Handle Pinch-to-Zoom
+        if (e.touches && e.touches.length === 2) {
+            clearTimeout(longPressTimer);
+            isClicking = false;
+            isDragging = false; // Ensure dragging is false during pinch
+
+            const newPinchDistance = Math.hypot(
+                e.touches[1].clientX - e.touches[0].clientX,
+                e.touches[1].clientY - e.touches[0].clientY
+            );
+
+            if (lastPinchDistance === null) { // First move of pinch
+                lastPinchDistance = newPinchDistance;
+                return;
+            }
+
+            const scaleFactor = newPinchDistance / lastPinchDistance;
+            const oldZoom = zoom;
+            zoom = Math.min(3, Math.max(0.5, zoom * scaleFactor));
+
+            // Calculate center of pinch for zoom origin
+            const pinchCenterX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+            const pinchCenterY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
+
+            offsetX = pinchCenterX - ((pinchCenterX - offsetX) * (zoom / oldZoom));
+            offsetY = pinchCenterY - ((pinchCenterY - offsetY) * (zoom / oldZoom));
+
+            lastPinchDistance = newPinchDistance;
+            drawGrid();
+            return; // Exit early if pinching
+        }
+
+        // Handle single-pointer drag/pan or initial click movement
+        if (isClicking) {
+            const distance = Math.hypot(mouseX - lastMouseDownX, mouseY - lastMouseDownY);
+            if (distance > clickTolerance) {
+                clearTimeout(longPressTimer);
+                isClicking = false;
+                if (dotUnderMouseDownIndex === -1) { // Only start drag if not on a dot
+                    isDragging = true;
+                    offsetX += mouseX - lastMouseDownX;
+                    offsetY += mouseY - lastMouseDownY;
+                    lastMouseDownX = mouseX;
+                    lastMouseDownY = mouseY;
+                    canvas.style.cursor = 'grabbing';
+                    drawGrid();
+                }
+            }
+        } else if (isDragging) {
+            offsetX += mouseX - lastMouseDownX;
+            offsetY += mouseY - lastMouseDownY;
+            lastMouseDownX = mouseX;
+            lastMouseDownY = mouseY;
+            canvas.style.cursor = 'grabbing';
+            drawGrid();
+        } else { // Handle hover during non-dragging mousemove for desktop
+             const currentHover = findNearestDot(mouseX, mouseY);
+             if (currentHover !== hoveredDot) {
+                 hoveredDot = currentHover;
+                 drawGrid();
+             }
+             canvas.style.cursor = currentHover !== -1 ? 'pointer' : 'grab';
+        }
+    }
+
+    // Unified Mouseup/Touchend/Touchcancel Logic
+    function handlePointerUp(e) {
+        clearTimeout(longPressTimer);
+        
+        if (isDragging) {
+            isDragging = false;
+            canvas.style.cursor = 'grab';
+        } else if (isClicking) {
+            isClicking = false;
+            const rect = canvas.getBoundingClientRect();
+            const clickX = e.changedTouches ? e.changedTouches[0].clientX - rect.left : e.clientX - rect.left;
+            const clickY = e.changedTouches ? e.changedTouches[0].clientY - rect.top : e.clientY - rect.top;
+            
+            const dotClickedIndex = findNearestDot(clickX, clickY);
+
+            if (dotClickedIndex !== -1) {
+                selectedDot = dotClickedIndex;
+                updateToolbarButtonsVisibility();
+                drawGrid();
+            } else {
+                const x = (clickX - offsetX) / zoom;
+                const y = (clickY - offsetY) / zoom;
+                dots.push({ x, y, color: colorPicker.value });
+                saveToFirebase();
+                selectedDot = null;
+                updateToolbarButtonsVisibility();
+            }
+        }
+        dotUnderMouseDownIndex = null;
+        lastPinchDistance = null; // Reset pinch distance on lift
+        isTouching = false; // Reset touch flag
+    }
+
+    canvas.addEventListener('mousedown', handlePointerDown);
+    canvas.addEventListener('mousemove', handlePointerMove);
+    canvas.addEventListener('mouseup', handlePointerUp);
+    canvas.addEventListener('mouseleave', () => { // Mouseleave specific
+        clearTimeout(longPressTimer);
+        isClicking = false;
+        isDragging = false;
+        hoveredDot = null;
+        dotUnderMouseDownIndex = null;
         drawGrid();
-        return;
-      }
-      if (isDragging) return;
-      const rect = canvas.getBoundingClientRect();
-      const x = (e.clientX - rect.left - offsetX) / zoom;
-      const y = (e.clientY - rect.top - offsetY) / zoom;
-
-      const index = dots.findIndex(dot => Math.abs(dot.x - x) < 5 && Math.abs(dot.y - y) < 5);
-      if (index !== -1) {
-        dots.splice(index, 1);
-      } else {
-        dots.push({ x, y, color: colorPicker.value });
-      }
-      saveToFirebase();
+        hideContextMenu();
+        canvas.style.cursor = 'grab';
     });
 
-    undoButton.addEventListener('click', () => {
-      dots.pop();
-      saveToFirebase();
-    });
+    canvas.addEventListener('touchstart', handlePointerDown, { passive: false }); // passive: false to allow preventDefault
+    canvas.addEventListener('touchmove', handlePointerMove, { passive: false });
+    canvas.addEventListener('touchend', handlePointerUp);
+    canvas.addEventListener('touchcancel', handlePointerUp); // For interrupted touches
 
-    window.addEventListener('keydown', (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-        e.preventDefault();
-        dots.pop();
-        saveToFirebase();
-      }
-    });
-
-    canvas.addEventListener('mousedown', (e) => {
-      isDragging = true;
-      dragStartX = e.clientX;
-      dragStartY = e.clientY;
-    });
-
-    canvas.addEventListener('mousemove', (e) => {
-      const rect = canvas.getBoundingClientRect();
-      const mouseX = (e.clientX - rect.left);
-      const mouseY = (e.clientY - rect.top);
-
-      if (isDragging) {
-        offsetX += e.clientX - dragStartX;
-        offsetY += e.clientY - dragStartY;
-        dragStartX = e.clientX;
-        dragStartY = e.clientY;
-        drawGrid();
-      } else {
-        drawGrid();
-        drawTooltip(mouseX, mouseY, `X: ${Math.floor((mouseX - offsetX) / zoom)} | Y: ${Math.floor((mouseY - offsetY) / zoom)}`);
-      }
-    });
-
-    canvas.addEventListener('mouseup', () => {
-      isDragging = false;
-    });
-
-    canvas.addEventListener('mouseleave', () => {
-      isDragging = false;
-      drawGrid();
-    });
-
-    canvas.addEventListener('wheel', (e) => {
+    canvas.addEventListener('wheel', (e) => { // Existing wheel zoom
       e.preventDefault();
       const zoomFactor = 0.1;
       const oldZoom = zoom;
@@ -253,25 +557,72 @@
       drawGrid();
     });
 
-    function drawTooltip(x, y, text) {
-      ctx.font = '14px sans-serif';
-      const padding = 6;
-      const textWidth = ctx.measureText(text).width;
-      const boxWidth = textWidth + padding * 2;
-      const boxHeight = 24;
+    // ... (rest of event listeners for toolbar buttons and context menu remain unchanged) ...
 
-      let drawX = x + 10;
-      let drawY = y + 10;
+    document.addEventListener('click', (e) => {
+      if (!contextMenu.contains(e.target)) {
+        hideContextMenu();
+      }
+    });
 
-      if (drawX + boxWidth > canvas.width) drawX = x - boxWidth - 10;
-      if (drawY + boxHeight > canvas.height) drawY = y - boxHeight - 10;
+    deleteOption.addEventListener('click', () => {
+      if (selectedDot !== null) {
+        dots.splice(selectedDot, 1);
+        saveToFirebase();
+        selectedDot = null;
+        updateToolbarButtonsVisibility();
+        drawGrid();
+      }
+      hideContextMenu();
+    });
 
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-      ctx.fillRect(drawX, drawY, boxWidth, boxHeight);
+    changeColorOption.addEventListener('click', () => {
+      if (selectedDot !== null) {
+        dots[selectedDot].color = colorPicker.value;
+        saveToFirebase();
+        selectedDot = null;
+        updateToolbarButtonsVisibility();
+        drawGrid();
+      }
+      hideContextMenu();
+    });
 
-      ctx.fillStyle = 'white';
-      ctx.fillText(text, drawX + padding, drawY + 17);
-    }
+    deleteSelectedDotBtn.addEventListener('click', () => {
+        if (selectedDot !== null) {
+            dots.splice(selectedDot, 1);
+            saveToFirebase();
+            selectedDot = null;
+            updateToolbarButtonsVisibility();
+            drawGrid();
+        }
+    });
+
+    changeSelectedDotColorBtn.addEventListener('click', () => {
+        if (selectedDot !== null) {
+            dots[selectedDot].color = colorPicker.value;
+            saveToFirebase();
+            selectedDot = null;
+            updateToolbarButtonsVisibility();
+            drawGrid();
+        }
+    });
+
+    undoButton.addEventListener('click', () => {
+      dots.pop();
+      saveToFirebase();
+      selectedDot = null;
+      updateToolbarButtonsVisibility();
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
+        dots.pop();
+        saveToFirebase();
+        selectedDot = null;
+        updateToolbarButtonsVisibility();
+      }
+    });
 
     searchBtn.addEventListener('click', () => {
       const sx = parseFloat(searchX.value);
@@ -280,6 +631,24 @@
 
       searchHighlight = { x: sx, y: sy };
       drawGrid();
+    });
+
+    addDotBtn.addEventListener('click', () => {
+        const x = parseFloat(searchX.value);
+        const y = parseFloat(searchY.value);
+
+        if (isNaN(x) || isNaN(y)) {
+            alert("Silakan masukkan koordinat X dan Y yang valid.");
+            return;
+        }
+
+        dots.push({ x, y, color: colorPicker.value });
+        saveToFirebase();
+        
+        searchHighlight = null; 
+        selectedDot = null;
+        updateToolbarButtonsVisibility();
+        drawGrid();
     });
 
     saveBtn.addEventListener('click', () => {
@@ -292,7 +661,9 @@
       a.click();
     });
 
+    // Initial Grid Draw
     drawGrid();
+    updateToolbarButtonsVisibility();
   </script>
 </body>
 </html>
