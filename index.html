@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Advanced Dot Canvas</title>
+  <title>Advanced Dot Canvas (Bottom-Left Origin)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     body {
@@ -12,7 +12,8 @@
       align-items: center;
       justify-content: start;
       padding: 10px;
-      background: #f0f0f0;
+      /* Background for the whole page */
+      background: #f0f0f0; 
       font-family: sans-serif;
     }
     canvas {
@@ -20,28 +21,49 @@
       background-color: white;
       margin-top: 10px;
       cursor: grab;
-      touch-action: none; /* Penting untuk mencegah browser scroll/zoom default */
-      max-width: 100%;
-      height: auto;
+      touch-action: none; /* Crucial for preventing default touch scroll/zoom */
+      max-width: 100%; /* Ensures canvas scales down on small screens */
+      height: auto; /* Maintains aspect ratio */
+      display: block; /* Removes extra space below canvas if any */
     }
     canvas:active {
       cursor: grabbing;
     }
     select, button, input {
-      padding: 6px;
-      font-size: 14px;
+      padding: 8px 12px; /* Increased padding for easier touch */
+      font-size: 16px;   /* Increased font size for readability */
       margin: 4px;
+      border-radius: 5px; /* Rounded corners for buttons */
+      border: 1px solid #ccc;
+      background-color: white;
+      transition: background-color 0.2s, border-color 0.2s;
     }
+    button:hover, select:hover {
+        background-color: #f5f5f5;
+        border-color: #aaa;
+    }
+
     .toolbar {
       display: flex;
-      flex-wrap: wrap;
+      flex-wrap: wrap; /* Allow items to wrap to next line */
       justify-content: center;
-      gap: 5px;
-      /* Tambahan untuk responsivitas toolbar di mobile */
-      width: 100%; /* Agar memenuhi lebar layar */
-      box-sizing: border-box; /* Padding dihitung dalam lebar */
-      padding: 0 10px; /* Sedikit padding di samping */
+      gap: 8px; /* Consistent spacing */
+      padding: 10px;
+      background: #e0e0e0; /* Toolbar background */
+      border-radius: 8px; /* Rounded toolbar */
+      width: 100%; /* Take full width of parent (body) */
+      max-width: 1000px; /* Optional: limit toolbar width to canvas width */
+      box-sizing: border-box; /* Include padding in width */
     }
+    .toolbar label {
+        display: flex; /* Make label and select/input align well */
+        align-items: center;
+        gap: 5px;
+    }
+    .toolbar input[type="number"] {
+        flex: 1; /* Allow number inputs to grow */
+    }
+
     #contextMenu {
       position: absolute;
       background: white;
@@ -60,27 +82,38 @@
     .menu-item:hover {
       background: #f0f0f0;
     }
+    
     /* Style for buttons that toggle visibility */
     .toolbar-hidden {
         display: none !important;
     }
-    @media (max-width: 600px) {
-      canvas {
-        width: 100% !important;
-        height: auto !important;
-      }
-      /* Penyesuaian untuk toolbar di layar kecil */
-      .toolbar label, .toolbar select, .toolbar button, .toolbar input {
-        width: calc(50% - 8px); /* 2 kolom per baris, kurangi gap */
-        box-sizing: border-box;
-      }
-      .toolbar label {
-        width: 100%; /* Label bisa 1 kolom */
-        text-align: center;
-      }
-      .toolbar input {
-        width: calc(50% - 8px); /* Input X dan Y */
-      }
+
+    /* Media queries for smaller screens (mobile) */
+    @media (max-width: 768px) {
+        body {
+            padding: 5px;
+        }
+        .toolbar {
+            flex-direction: column; /* Stack items vertically */
+            align-items: stretch; /* Stretch items to fill width */
+            gap: 10px; /* Larger gap for touch targets */
+            padding: 10px 15px; /* More padding on the sides */
+        }
+        .toolbar label, .toolbar select, .toolbar button, .toolbar input {
+            width: 100%; /* Make everything full width */
+            box-sizing: border-box;
+        }
+        .toolbar label {
+            justify-content: center; /* Center content of labels */
+        }
+        canvas {
+            border-width: 1px; /* Thinner border on mobile */
+            margin-top: 5px;
+        }
+        select, button, input {
+            padding: 10px 15px; /* Even larger padding for touch targets */
+            font-size: 18px; /* Larger font for readability */
+        }
     }
   </style>
 </head>
@@ -104,12 +137,14 @@
     <button id="addDotBtn">Tambah Titik</button>
     <button id="saveBtn">Simpan Titik</button>
 
+    <!-- New buttons for selected dot operations -->
     <button id="deleteSelectedDotBtn" class="toolbar-hidden">Hapus Titik Terpilih</button>
     <button id="changeSelectedDotColorBtn" class="toolbar-hidden">Ganti Warna Terpilih</button>
   </div>
 
   <canvas id="gridCanvas" width="1000" height="1000"></canvas>
 
+  <!-- Context Menu -->
   <div id="contextMenu">
     <div class="menu-item" id="deleteOption">Hapus Titik</div>
     <div class="menu-item" id="changeColorOption">Ganti Warna</div>
@@ -160,25 +195,28 @@
     // State Variables
     let dots = [];
     let zoom = 1;
-    let offsetX = 0;
-    let offsetY = 0;
+    let offsetX = 0; // Canvas content offset in internal pixels
+    let offsetY = 0; // Canvas content offset in internal pixels
     let hoveredDot = null;
     let selectedDot = null;
     let searchHighlight = null;
 
-    // --- Variables for Click/Drag/Long Press Logic ---
+    // --- Variables for Click/Drag/Long Press/Pinch Logic ---
     let isDragging = false;
     let isClicking = false;
     let longPressTimer = null;
     const longPressThreshold = 500;
-    const clickTolerance = 5;
-    let lastMouseDownX = 0;
-    let lastMouseDownY = 0;
+    const clickTolerance = 20; // Ditingkatkan toleransinya untuk mobile (20px dalam internal kanvas)
+    
+    let lastEventCanvasX = 0; // Last known canvas internal X for drag tracking
+    let lastEventCanvasY = 0; // Last known canvas internal Y for drag tracking
+
     let dotUnderMouseDownIndex = null;
 
-    // --- Variables for Touch Events ---
-    let lastPinchDistance = null; // For pinch-to-zoom
-    let isTouching = false; // Flag to distinguish touch from mouse events
+    // For pinch-to-zoom
+    let initialPinchDistance = -1;
+    let initialPinchCenterCanvasX = 0;
+    let initialPinchCenterCanvasY = 0;
 
     // Firebase Data Listener
     onValue(dotsRef, (snapshot) => {
@@ -193,21 +231,24 @@
     }
 
     function getCellSize(index) {
-      return index === centerIndex ? baseCenterSize * zoom : baseCellSize * zoom;
+        // PERUBAHAN: Pengaruh zoom diterapkan di sini
+        return index === centerIndex ? baseCenterSize * zoom : baseCellSize * zoom;
     }
 
     function getPosition(index) {
-      let pos = 0;
-      for (let i = 0; i < index; i++) {
-        pos += getCellSize(i);
-      }
-      return pos;
+        // PERUBAHAN: Posisi awal sel tanpa mempertimbangkan zoom
+        let pos = 0;
+        for (let i = 0; i < index; i++) {
+            // Menggunakan baseCellSize karena getCellSize sudah memperhitungkan zoom
+            pos += baseCellSize;
+        }
+        return pos;
     }
 
     function drawGrid() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // --- RESET PROPERTI SHADOW DI SINI ---
+      // --- RESET GLOBAL SHADOW PROPERTIES ---
       ctx.shadowColor = 'transparent';
       ctx.shadowBlur = 0;
       ctx.shadowOffsetY = 0;
@@ -216,35 +257,40 @@
       // Draw grid cells
       for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
-          const x = offsetX + getPosition(col);
-          const y = offsetY + getPosition(row);
+          const x = offsetX + getPosition(col) * zoom; // X dihitung dari kiri, zoom diterapkan
+          // PERUBAHAN UTAMA UNTUK Y-AXIS TERBALIK: gambat dari bawah ke atas
+          // Perhitungan y_top pada kanvas
+          const y_topCanvas = canvas.height - (offsetY + getPosition(row)*zoom + getCellSize(row)); 
           const w = getCellSize(col);
           const h = getCellSize(row);
 
           ctx.fillStyle = (row === centerIndex && col === centerIndex) ? 'gold' : '#ddd';
-          ctx.fillRect(x, y, w, h);
+          ctx.fillRect(x, y_topCanvas, w, h);
           ctx.strokeStyle = '#999';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(x, y, w, h);
+          ctx.lineWidth = 1; // Explicitly set grid line width
+          ctx.strokeRect(x, y_topCanvas, w, h);
         }
       }
 
       // Draw dots
       dots.forEach((dot, index) => {
         const dotX = dot.x * zoom + offsetX;
-        const dotY = dot.y * zoom + offsetY;
+        // PERUBAHAN UTAMA UNTUK Y-AXIS TERBALIK pada posisi DOT
+        // dot.y di array dots diasumsikan sebagai Y dari bawah
+        const dotY = canvas.height - (dot.y * zoom + offsetY); 
         
         ctx.beginPath();
         ctx.fillStyle = dot.color;
         
-        // Hover effect (only for mouse, not touch)
-        if (!isTouching && index === hoveredDot) { // Only show hover for mouse
-          ctx.arc(dotX, dotY - 5, 7, 0, Math.PI * 2);
-          ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+        // Hover effect for dots only
+        if (index === hoveredDot) {
+          ctx.arc(dotX, dotY - 5, 7, 0, Math.PI * 2); // Float up and enlarge
+          ctx.shadowColor = 'rgba(0, 0, 0, 0.3)'; // Apply shadow for hovered dot
           ctx.shadowBlur = 5;
           ctx.shadowOffsetY = 3;
         } else {
           ctx.arc(dotX, dotY, 5, 0, Math.PI * 2);
+          // Crucial: Reset shadow if dot is NOT hovered, before drawing next elements
           ctx.shadowColor = 'transparent';
           ctx.shadowBlur = 0;
           ctx.shadowOffsetY = 0;
@@ -252,30 +298,47 @@
         
         ctx.fill();
         ctx.strokeStyle = 'black';
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 1; // Dot border width
         ctx.stroke();
 
-        // Highlight selected dot
+        // Highlight selected dot (always drawn on top, check shadow reset)
         if (index === selectedDot) {
+            // Ensure no shadow for selection highlight unless explicitly desired
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetY = 0;
+
             ctx.beginPath();
-            ctx.arc(dotX, dotY, 9, 0, Math.PI * 2);
+            ctx.arc(dotX, dotY, 9, 0, Math.PI * 2); // Larger circle for selection
             ctx.strokeStyle = 'purple';
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 2; // Selection border width
             ctx.stroke();
         }
 
-        // Show coordinates on hover (only for mouse, not touch)
-        if (!isTouching && index === hoveredDot) { // Only show hover for mouse
-          drawCoordinateTooltip(dotX, dotY - 15, `X: ${Math.round(dot.x)}, Y: ${Math.round(dot.y)}`);
+        // Show coordinates on hover (draws text, requires shadow reset)
+        if (index === hoveredDot) {
+          // Reset shadow before drawing tooltip for specific clean draw
+          ctx.shadowColor = 'transparent';
+          ctx.shadowBlur = 0;
+          ctx.shadowOffsetY = 0;
+          // PERUBAHAN UNTUK Y-AXIS TOOLTIP: tooltips digambar di atas titik, tapi posisinya dihitung dari screen Y-top
+          // Jika dotY adalah Y-top koordinat untuk titik, maka tooltip nya harus lebih atas lagi
+          drawCoordinateTooltip(dotX, dotY - 15, `X: ${Math.round(dot.x)}, Y: ${Math.round(dot.y)}`); // Tooltip digambar di atas dot
         }
       });
 
-      // Highlight search result
+      // Highlight search result (requires shadow reset)
       if (searchHighlight) {
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetY = 0;
+
+        // PERUBAHAN UNTUK Y-AXIS SEARCH HIGHLIGHT
+        const searchHighlightY_top = canvas.height - (searchHighlight.y * zoom + offsetY);
         ctx.beginPath();
         ctx.arc(
           searchHighlight.x * zoom + offsetX,
-          searchHighlight.y * zoom + offsetY,
+          searchHighlightY_top,
           10, 0, Math.PI * 2
         );
         ctx.strokeStyle = 'red';
@@ -285,40 +348,86 @@
     }
 
     // --- Helper Functions ---
-    function showContextMenu(x, y) {
+
+    // Function to get accurate canvas drawing coordinates from mouse/touch event
+    function getCanvasCoords(e, type = 'event') {
+        const rect = canvas.getBoundingClientRect(); // Element's size and position in viewport
+
+        let clientX = 0, clientY = 0;
+        if (type === 'event' && e.touches && e.touches.length > 0) {
+            clientX = e.touches[0].clientX;
+            clientY = e.touches[0].clientY;
+        } else if (type === 'event' && !e.touches) {
+            clientX = e.clientX;
+            clientY = e.clientY;
+        } else if (type === 'touch' && e) { // For specific touch objects (e.g., e.touches[1])
+            clientX = e.clientX;
+            clientY = e.clientY;
+        }
+
+        // Calculate position relative to the canvas element's top-left, in CSS pixels
+        const cssX = clientX - rect.left;
+        const cssY = clientY - rect.top;
+
+        // Convert CSS pixels to internal canvas drawing pixels
+        // This accounts for CSS scaling of the canvas element
+        const canvasX = (cssX / rect.width) * canvas.width;
+        const canvasY = (cssY / rect.height) * canvas.height;
+
+        return {
+            clientX: clientX, // Original clientX for context menu positioning
+            clientY: clientY, // Original clientY for context menu positioning
+            canvasX: canvasX, // Coordinate in canvas's internal drawing space
+            canvasY: canvasY  // Coordinate in canvas's internal drawing space
+        };
+    }
+
+    function getDistance(touch1, touch2) {
+        return Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
+    }
+
+    function showContextMenu(clientX, clientY) { // Use clientX/Y for screen positioning
       contextMenu.style.display = 'block';
-      contextMenu.style.left = `${x}px`;
-      contextMenu.style.top = `${y}px`;
+      contextMenu.style.left = `${clientX}px`;
+      contextMenu.style.top = `${clientY}px`;
     }
 
     function hideContextMenu() {
       contextMenu.style.display = 'none';
     }
 
-    function findNearestDot(x, y) {
+    // PERUBAHAN UTAMA UNTUK findNearestDot (expects internal canvas drawing coordinates)
+    function findNearestDot(canvasX_top, canvasY_top) { // canvasX_top, canvasY_top adalah koordinat top-left
+      // Balik koordinat Y ke sistem Y-bawah agar sesuai dengan data dot yang disimpan (dot.y)
+      // Koordinat Y yang kita cari adalah dot.Y, yang adalah Y dari bawah
+      const searchY_fromBottom = (canvas.height - canvasY_top); 
+
       for (let i = 0; i < dots.length; i++) {
-        const dotX = dots[i].x * zoom + offsetX;
-        const dotY = dots[i].y * zoom + offsetY;
-        if (Math.hypot(x - dotX, y - dotY) < 10) {
+        // Konversi dot.x dan dot.y yang sudah Y-bawah ke Y-atas koordinat layar
+        const dotX_screen = dots[i].x * zoom + offsetX;
+        const dotY_screen = canvas.height - (dots[i].y * zoom + offsetY); 
+        
+        // Bandingkan dengan koordinat layar (top-left) dari event
+        if (Math.hypot(canvasX_top - dotX_screen, canvasY_top - dotY_screen) < 10) { 
           return i;
         }
       }
       return -1;
     }
 
-    function drawCoordinateTooltip(x, y, text) {
+    function drawCoordinateTooltip(x_top, y_top, text) { // Coordinates here are internal canvas drawing coords (top-left system)
       ctx.font = '12px sans-serif';
       const padding = 4;
       const textWidth = ctx.measureText(text).width;
       const boxWidth = textWidth + padding * 2;
       const boxHeight = 20;
 
-      let drawX = x - boxWidth / 2;
-      let drawY = y - 30;
+      let drawX = x_top - boxWidth / 2;
+      let drawY = y_top - 30; // Posisi tooltip relatif terhadap koordinat gambar, (y_top adalah y dari atas)
 
       if (drawX < 0) drawX = 0;
       if (drawX + boxWidth > canvas.width) drawX = canvas.width - boxWidth;
-      if (drawY < 0) drawY = y + 20;
+      if (drawY < 0) drawY = y_top + 20; // Jika terlalu tinggi, gambar di bawah
 
       ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
       ctx.fillRect(drawX, drawY, boxWidth, boxHeight);
@@ -336,235 +445,228 @@
         }
     }
 
-    // --- Event Listeners (Mouse & Touch) ---
+    // --- Event Listeners ---
+    
+    // Unified start interaction (mousedown and touchstart)
+    canvas.addEventListener('mousedown', startInteraction);
+    canvas.addEventListener('touchstart', startInteraction, { passive: false });
 
-    // Unified Mousedown/Touchstart Logic
-    function handlePointerDown(e) {
-        // Prevent default browser actions for touch
-        if (e.type === 'touchstart') {
-            e.preventDefault();
-            isTouching = true;
-        } else {
-            isTouching = false;
-        }
-
+    function startInteraction(e) {
         hideContextMenu();
         searchHighlight = null;
 
-        const rect = canvas.getBoundingClientRect();
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        const coords = getCanvasCoords(e); // Get unified coordinates (canvasX, canvasY adalah Y dari atas)
+        lastEventCanvasX = coords.canvasX;
+        lastEventCanvasY = coords.canvasY;
+        
+        // Kondisi dotUnderMouseDownIndex menggunakan Y top-left
+        dotUnderMouseDownIndex = findNearestDot(coords.canvasX, coords.canvasY);
 
-        const mouseX = clientX - rect.left;
-        const mouseY = clientY - rect.top;
-
-        lastMouseDownX = mouseX;
-        lastMouseDownY = mouseY;
-        dotUnderMouseDownIndex = findNearestDot(mouseX, mouseY);
-
-        // Handle multi-touch for pinch-to-zoom
+        // Handle Pinch-to-Zoom start
         if (e.touches && e.touches.length === 2) {
-            lastPinchDistance = Math.hypot(
-                e.touches[1].clientX - e.touches[0].clientX,
-                e.touches[1].clientY - e.touches[0].clientY
-            );
-            isClicking = false; // Not a click/long press if pinching
-            isDragging = false; // Not dragging either
-            clearTimeout(longPressTimer);
-        } else {
-            // Start timer for long press
-            longPressTimer = setTimeout(() => {
-                if (dotUnderMouseDownIndex !== -1) {
-                    selectedDot = dotUnderMouseDownIndex;
-                    updateToolbarButtonsVisibility();
-                    showContextMenu(clientX, clientY); // Use clientX/Y for screen position
-                    drawGrid();
-                }
-                isClicking = false;
-            }, longPressThreshold);
-
-            isClicking = true;
+            initialPinchDistance = getDistance(e.touches[0], e.touches[1]);
+            // PERUBAHAN UNTUK PINCH CENTER Y TERBALIK: Hitung pusat pinch dalam sistem Y-bawah
+            let touch0CanvasCoords = getCanvasCoords(e.touches[0], 'touch');
+            let touch1CanvasCoords = getCanvasCoords(e.touches[1], 'touch');
+            
+            initialPinchCenterCanvasX = (touch0CanvasCoords.canvasX + touch1CanvasCoords.canvasX) / 2;
+            // Y-center harus dihitung dalam sistem Y-bawah untuk konsistensi dengan offsetX/Y
+            initialPinchCenterCanvasY = ((canvas.height - touch0CanvasCoords.canvasY) + (canvas.height - touch1CanvasCoords.canvasY)) / 2; 
+            
+            isClicking = false; // Not a click or drag
             isDragging = false;
+            clearTimeout(longPressTimer);
+            return; // Exit as pinch is handled
         }
+        
+        // Handle Single Touch/Mouse Long Press or Click/Drag
+        longPressTimer = setTimeout(() => {
+            // Only show context menu if it's a long press on a dot
+            if (dotUnderMouseDownIndex !== -1) {
+                selectedDot = dotUnderMouseDownIndex;
+                updateToolbarButtonsVisibility();
+                showContextMenu(coords.clientX, coords.clientY); // Use clientX/Y for DOM positioning
+                drawGrid(); // Redraw for selection highlight
+            }
+            isClicking = false; // Long press achieved, not a click
+        }, longPressThreshold);
 
+        isClicking = true; // Potentially a click
+        isDragging = false; // Not dragging yet
+
+        // If clicking on empty space, deselect any previously selected dot
         if (dotUnderMouseDownIndex === -1 && selectedDot !== null) {
             selectedDot = null;
             updateToolbarButtonsVisibility();
-            drawGrid();
+            drawGrid(); // Redraw to remove old selection highlight
         }
     }
 
-    // Unified Mousemove/Touchmove Logic
-    function handlePointerMove(e) {
-        // Prevent default browser actions for touch
-        if (e.type === 'touchmove') {
+    
+    // Unified handle interaction (mousemove and touchmove)
+    canvas.addEventListener('mousemove', handleInteraction);
+    canvas.addEventListener('touchmove', handleInteraction, { passive: false });
+
+    function handleInteraction(e) {
+        // Prevent default touch scrolling/zooming by browser if handled manually
+        if (e.touches && (e.touches.length === 1 || e.touches.length === 2)) {
             e.preventDefault();
         }
+
+        const coords = getCanvasCoords(e); // Get unified coords for current event (Y top-left)
         
-        // If not pressing mouse/touch, or if pinching, just update hover and return
-        if (!isClicking && !isDragging && (!e.touches || e.touches.length === 0)) {
-            const rect = canvas.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
-            const currentHover = findNearestDot(mouseX, mouseY);
+        // Handle Pinch-to-Zoom continuation
+        if (e.touches && e.touches.length === 2) {
+            if (initialPinchDistance === -1) { return; } // Not properly initialized
+
+            const currentPinchDistance = getDistance(e.touches[0], e.touches[1]);
+            const oldZoom = zoom;
+
+            zoom *= currentPinchDistance / initialPinchDistance;
+            zoom = Math.min(3, Math.max(0.5, zoom)); // Clamp zoom level
+
+            // Calculate new offset based on initial pinch center (initialPinchCenterCanvasY adalah Y-bawah)
+            offsetX = initialPinchCenterCanvasX - ((initialPinchCenterCanvasX - offsetX) * (zoom / oldZoom));
+            offsetY = initialPinchCenterCanvasY - ((initialPinchCenterCanvasY - offsetY) * (zoom / oldZoom));
+
+            initialPinchDistance = currentPinchDistance; // Update for next step
+            
+            clearTimeout(longPressTimer); // Cancel long press if pinching
+            isClicking = false; // Not a click
+            isDragging = false; // Not dragging
+            drawGrid();
+            return; // Handled pinch, exit
+        }
+        
+        // Handle Drag (Mouse or Single Touch)
+        if (isClicking) { // If a potential click/long press started, check for movement to start drag
+            const distance = Math.hypot(coords.canvasX - lastEventCanvasX, coords.canvasY - lastEventCanvasY);
+            if (distance > clickTolerance) {
+                clearTimeout(longPressTimer); // Movement exceeds tolerance, cancel long press
+                isClicking = false; // No longer a simple click
+                if (dotUnderMouseDownIndex === -1) { // Only start drag if mouse/touch is NOT over a dot
+                    isDragging = true;
+                    // PERUBAHAN UNTUK OFFSET SAAT DRAG (offsetY adalah Y dari bawah)
+                    offsetX += coords.canvasX - lastEventCanvasX;
+                    offsetY -= (coords.canvasY - lastEventCanvasY); // Y dibalik karena drag Y ke atas = Y-koordinat mengecil di top-left
+                    
+                    // Update last known position for continuous drag
+                    lastEventCanvasX = coords.canvasX;
+                    lastEventCanvasY = coords.canvasY; // Tetap top-left
+                    canvas.style.cursor = 'grabbing';
+                    drawGrid();
+                }
+            }
+        } else if (isDragging) { // Continue dragging
+            // PERUBAHAN UNTUK OFFSET SAAT DRAG (lanjutan)
+            offsetX += coords.canvasX - lastEventCanvasX;
+            offsetY -= (coords.canvasY - lastEventCanvasY); // Y dibalik
+
+            // Update last known position for continuous drag
+            lastEventCanvasX = coords.canvasX;
+            lastEventCanvasY = coords.canvasY; // Tetap top-left
+            canvas.style.cursor = 'grabbing';
+            drawGrid();
+        } else { // Not clicking or dragging, just hovering
+            // Current hover menggunakan koordinat top-left
+            const currentHover = findNearestDot(coords.canvasX, coords.canvasY); 
             if (currentHover !== hoveredDot) {
                 hoveredDot = currentHover;
                 drawGrid();
             }
             canvas.style.cursor = currentHover !== -1 ? 'pointer' : 'grab';
-            return; // Exit early if not actively interacting
-        }
-
-        const rect = canvas.getBoundingClientRect();
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-        const mouseX = clientX - rect.left;
-        const mouseY = clientY - rect.top;
-
-        // Handle Pinch-to-Zoom
-        if (e.touches && e.touches.length === 2) {
-            clearTimeout(longPressTimer);
-            isClicking = false;
-            isDragging = false; // Ensure dragging is false during pinch
-
-            const newPinchDistance = Math.hypot(
-                e.touches[1].clientX - e.touches[0].clientX,
-                e.touches[1].clientY - e.touches[0].clientY
-            );
-
-            if (lastPinchDistance === null) { // First move of pinch
-                lastPinchDistance = newPinchDistance;
-                return;
-            }
-
-            const scaleFactor = newPinchDistance / lastPinchDistance;
-            const oldZoom = zoom;
-            zoom = Math.min(3, Math.max(0.5, zoom * scaleFactor));
-
-            // Calculate center of pinch for zoom origin
-            const pinchCenterX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
-            const pinchCenterY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
-
-            offsetX = pinchCenterX - ((pinchCenterX - offsetX) * (zoom / oldZoom));
-            offsetY = pinchCenterY - ((pinchCenterY - offsetY) * (zoom / oldZoom));
-
-            lastPinchDistance = newPinchDistance;
-            drawGrid();
-            return; // Exit early if pinching
-        }
-
-        // Handle single-pointer drag/pan or initial click movement
-        if (isClicking) {
-            const distance = Math.hypot(mouseX - lastMouseDownX, mouseY - lastMouseDownY);
-            if (distance > clickTolerance) {
-                clearTimeout(longPressTimer);
-                isClicking = false;
-                if (dotUnderMouseDownIndex === -1) { // Only start drag if not on a dot
-                    isDragging = true;
-                    offsetX += mouseX - lastMouseDownX;
-                    offsetY += mouseY - lastMouseDownY;
-                    lastMouseDownX = mouseX;
-                    lastMouseDownY = mouseY;
-                    canvas.style.cursor = 'grabbing';
-                    drawGrid();
-                }
-            }
-        } else if (isDragging) {
-            offsetX += mouseX - lastMouseDownX;
-            offsetY += mouseY - lastMouseDownY;
-            lastMouseDownX = mouseX;
-            lastMouseDownY = mouseY;
-            canvas.style.cursor = 'grabbing';
-            drawGrid();
-        } else { // Handle hover during non-dragging mousemove for desktop
-             const currentHover = findNearestDot(mouseX, mouseY);
-             if (currentHover !== hoveredDot) {
-                 hoveredDot = currentHover;
-                 drawGrid();
-             }
-             canvas.style.cursor = currentHover !== -1 ? 'pointer' : 'grab';
         }
     }
 
-    // Unified Mouseup/Touchend/Touchcancel Logic
-    function handlePointerUp(e) {
-        clearTimeout(longPressTimer);
-        
-        if (isDragging) {
-            isDragging = false;
-            canvas.style.cursor = 'grab';
-        } else if (isClicking) {
-            isClicking = false;
-            const rect = canvas.getBoundingClientRect();
-            const clickX = e.changedTouches ? e.changedTouches[0].clientX - rect.left : e.clientX - rect.left;
-            const clickY = e.changedTouches ? e.changedTouches[0].clientY - rect.top : e.clientY - rect.top;
-            
-            const dotClickedIndex = findNearestDot(clickX, clickY);
+    // Unified end interaction (mouseup, touchend, touchcancel)
+    canvas.addEventListener('mouseup', endInteraction);
+canvas.addEventListener('touchend', endInteraction);
+canvas.addEventListener('touchcancel', endInteraction);
 
-            if (dotClickedIndex !== -1) {
-                selectedDot = dotClickedIndex;
-                updateToolbarButtonsVisibility();
-                drawGrid();
-            } else {
-                const x = (clickX - offsetX) / zoom;
-                const y = (clickY - offsetY) / zoom;
-                dots.push({ x, y, color: colorPicker.value });
-                saveToFirebase();
-                selectedDot = null;
-                updateToolbarButtonsVisibility();
-            }
-        }
-        dotUnderMouseDownIndex = null;
-        lastPinchDistance = null; // Reset pinch distance on lift
-        isTouching = false; // Reset touch flag
-    }
+function endInteraction(e) {
+    clearTimeout(longPressTimer); // Clear any pending long press timer
+    initialPinchDistance = -1; // Reset pinch state
+    initialPinchCenterCanvasX = 0;
+    initialPinchCenterCanvasY = 0;
 
-    canvas.addEventListener('mousedown', handlePointerDown);
-    canvas.addEventListener('mousemove', handlePointerMove);
-    canvas.addEventListener('mouseup', handlePointerUp);
-    canvas.addEventListener('mouseleave', () => { // Mouseleave specific
-        clearTimeout(longPressTimer);
-        isClicking = false;
+    if (isDragging) { // If it was a drag
         isDragging = false;
-        hoveredDot = null;
-        dotUnderMouseDownIndex = null;
-        drawGrid();
-        hideContextMenu();
         canvas.style.cursor = 'grab';
+    } else if (isClicking) { // If it was a short click (not a drag or long press)
+        isClicking = false;
+        // Get coordinates of the touch/mouse upon release (Y top-left)
+        const coordsOnRelease = getCanvasCoords(e.changedTouches ? e.changedTouches[0] : e);
+        
+        // findNearestDot menggunakan koordinat top-left
+        const dotClickedIndex = findNearestDot(coordsOnRelease.canvasX, coordsOnRelease.canvasY);
+
+        if (dotClickedIndex !== -1) { // Clicked on an existing dot (short press)
+            selectedDot = dotClickedIndex;
+            updateToolbarButtonsVisibility();
+            drawGrid();
+        } else { // Clicked on empty space (short press)
+            // Simpan titik baru: X normal, Y dibalik (Y dari bawah)
+            const x = (coordsOnRelease.canvasX - offsetX) / zoom;
+            const y = (canvas.height - coordsOnRelease.canvasY - offsetY) / zoom; 
+            dots.push({ x, y, color: colorPicker.value });
+            saveToFirebase();
+            selectedDot = null;
+            updateToolbarButtonsVisibility();
+        }
+    }
+    dotUnderMouseDownIndex = null; // Reset for next interaction
+}
+
+
+    // Mousewheel Event (Desktop Zoom)
+    canvas.addEventListener('wheel', (e) => {
+        e.preventDefault(); // Prevent page scrolling
+        const zoomFactor = 0.1;
+        const oldZoom = zoom;
+        
+        // Use getCanvasCoords for consistent zoom center calculation (Y top-left)
+        const coords = getCanvasCoords(e);
+        const zoomCenterX = coords.canvasX;
+        // PERUBAHAN UNTUK ZOOM CENTER Y TERBALIK: Gunakan Y dari bawah
+        const zoomCenterY = canvas.height - coords.canvasY; 
+
+        if (e.deltaY < 0) { // Zoom in
+          zoom = Math.min(3, zoom + zoomFactor);
+        } else { // Zoom out
+          zoom = Math.max(0.5, zoom - zoomFactor);
+        }
+
+        // Adjust offsets to zoom around the mouse pointer
+        // offsetX dan offsetY adalah 'origin' dari sistem koordinat Y-bawah
+        offsetX = zoomCenterX - ((zoomCenterX - offsetX) * (zoom / oldZoom));
+        offsetY = zoomCenterY - ((zoomCenterY - offsetY) * (zoom / oldOldZoom)); // oldOldZoom? Should be oldZoom
+
+        drawGrid();
+
     });
 
-    canvas.addEventListener('touchstart', handlePointerDown, { passive: false }); // passive: false to allow preventDefault
-    canvas.addEventListener('touchmove', handlePointerMove, { passive: false });
-    canvas.addEventListener('touchend', handlePointerUp);
-    canvas.addEventListener('touchcancel', handlePointerUp); // For interrupted touches
-
-    canvas.addEventListener('wheel', (e) => { // Existing wheel zoom
-      e.preventDefault();
-      const zoomFactor = 0.1;
-      const oldZoom = zoom;
-      const mouseX = e.offsetX;
-      const mouseY = e.offsetY;
-
-      if (e.deltaY < 0) {
-        zoom = Math.min(3, zoom + zoomFactor);
-      } else {
-        zoom = Math.max(0.5, zoom - zoomFactor);
-      }
-
-      offsetX = mouseX - ((mouseX - offsetX) * (zoom / oldZoom));
-      offsetY = mouseY - ((mouseY - offsetY) * (zoom / oldZoom));
-
-      drawGrid();
-    });
-
-    // ... (rest of event listeners for toolbar buttons and context menu remain unchanged) ...
-
+    // Global Click Listener (for closing context menu if clicked outside)
     document.addEventListener('click', (e) => {
-      if (!contextMenu.contains(e.target)) {
+      // Check if the click occurred on the canvas or within contextMenu
+      const targetIsCanvas = e.target === canvas;
+      const targetIsInContextMenu = contextMenu.contains(e.target);
+
+      // If clicked outside the context menu AND it wasn't a click on the canvas (which might open it)
+      if (!targetIsInContextMenu && !targetIsCanvas) {
         hideContextMenu();
       }
     });
 
+    // Add Touchend Listener for context menu dismissal on mobile
+    document.addEventListener('touchend', (e) => {
+        // Check if the touch event target is outside the context menu
+        if (contextMenu.style.display === 'block' && !contextMenu.contains(e.target)) {
+            hideContextMenu();
+        }
+    });
+
+
+    // Context Menu Options Listeners (no change, rely on selectedDot)
     deleteOption.addEventListener('click', () => {
       if (selectedDot !== null) {
         dots.splice(selectedDot, 1);
@@ -587,6 +689,7 @@
       hideContextMenu();
     });
 
+    // Toolbar Buttons for Selected Dot (no change)
     deleteSelectedDotBtn.addEventListener('click', () => {
         if (selectedDot !== null) {
             dots.splice(selectedDot, 1);
@@ -607,6 +710,7 @@
         }
     });
 
+    // Existing Undo Button (no change)
     undoButton.addEventListener('click', () => {
       dots.pop();
       saveToFirebase();
@@ -614,9 +718,10 @@
       updateToolbarButtonsVisibility();
     });
 
+    // Existing Ctrl/Cmd + Z (no change)
     window.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-        e.preventDefault();
+        e.preventDefault(); // Prevent browser undo
         dots.pop();
         saveToFirebase();
         selectedDot = null;
@@ -624,15 +729,17 @@
       }
     });
 
+    // Existing Search Button (no change)
     searchBtn.addEventListener('click', () => {
       const sx = parseFloat(searchX.value);
       const sy = parseFloat(searchY.value);
       if (isNaN(sx) || isNaN(sy)) return;
 
-      searchHighlight = { x: sx, y: sy };
+      searchHighlight = { x: sx, y: sy }; // Search highlight uses Y-dari-bawah
       drawGrid();
     });
 
+    // Add Dot Button (no change except coord conversion is now handled by getCanvasCoords)
     addDotBtn.addEventListener('click', () => {
         const x = parseFloat(searchX.value);
         const y = parseFloat(searchY.value);
@@ -642,7 +749,7 @@
             return;
         }
 
-        dots.push({ x, y, color: colorPicker.value });
+        dots.push({ x, y, color: colorPicker.value }); // Asumsi X,Y dari input sudah Y-dari-bawah
         saveToFirebase();
         
         searchHighlight = null; 
@@ -651,6 +758,7 @@
         drawGrid();
     });
 
+    // Existing Save Button (no change)
     saveBtn.addEventListener('click', () => {
       const json = JSON.stringify(dots);
       const blob = new Blob([json], { type: 'application/json' });
@@ -663,7 +771,7 @@
 
     // Initial Grid Draw
     drawGrid();
-    updateToolbarButtonsVisibility();
+    updateToolbarButtonsVisibility(); // Set initial visibility
   </script>
 </body>
 </html>
