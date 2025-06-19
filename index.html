@@ -90,9 +90,9 @@
       </select>
     </label>
     <button id="undoButton">Undo</button>
-    <input type="number" id="searchX" placeholder="X Koord." autocomplete="off">
-    <input type="number" id="searchY" placeholder="Y Koord." autocomplete="off">
-    <button id="searchBtn">Cari Titik</button>
+    <input type="number" id="searchX" placeholder="X Coord." autocomplete="off">
+    <input type="number" id="searchY" placeholder="Y Coord." autocomplete="off">
+    <button id="searchBtn">Search</button>
     <button id="addDotBtn">Tambah Titik</button>
     <button id="saveBtn">Simpan Titik</button>
     <button id="themeToggle">Mode Gelap</button>
@@ -406,12 +406,37 @@
         saveBtn.addEventListener('click', () => { const json = JSON.stringify(dots, null, 2); const blob = new Blob([json], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'dots_data.json'; a.click(); URL.revokeObjectURL(url); });
     }
 
-    searchBtn.addEventListener('click', () => { const sx = parseFloat(searchX.value); const sy = parseFloat(searchY.value); if (isNaN(sx) || isNaN(sy)) { alert("Harap masukkan koordinat X dan Y yang valid untuk mencari."); return; } searchHighlight = { x: sx, y: sy }; drawGrid(); });
-    themeToggle.addEventListener('click', () => { const currentTheme = document.body.getAttribute('data-theme'); if (currentTheme === 'dark') { document.body.removeAttribute('data-theme'); themeToggle.textContent = 'Mode Gelap'; localStorage.setItem('theme', 'light'); } else { document.body.setAttribute('data-theme', 'dark'); themeToggle.textContent = 'Mode Terang'; localStorage.setItem('theme', 'dark'); } drawGrid(); });
+        searchBtn.addEventListener('click', () => {
+      const sx = parseFloat(searchX.value);
+      const sy = parseFloat(searchY.value);
+      if (isNaN(sx) || isNaN(sy)) {
+        alert("Harap masukkan koordinat X dan Y yang valid untuk mencari.");
+        return;
+      }
+
+      // Highlight titik
+      searchHighlight = { x: sx, y: sy };
+
+      // Hitung agar (sx,sy) muncul di tengah canvas
+      // Karena di drawGrid: dotX = sx*zoom + offsetX
+      //                 dotY = (canvas.height - dot.y) * zoom + offsetY
+      // Dan kita ingin (dotX, dotY) berada di (centerX, centerY)
+      
+      const centerX = canvas.width / 2; // Lebar tengah canvas (piksel fisik)
+      const centerY = canvas.height / 2; // Tinggi tengah canvas (piksel fisik)
+
+      // Sesuaikan offsetX dan offsetY
+      offsetX = centerX - sx * zoom;
+      // Perhatikan: Koordinat Y di canvas terbalik. canvas.height - sy adalah posisi Y "grafis"
+      offsetY = centerY - (canvas.height - sy) * zoom;
+
+      drawGrid();
+    });
+    themeToggle.addEventListener('click', () => { const currentTheme = document.body.getAttribute('data-theme'); if (currentTheme === 'dark') { document.body.removeAttribute('data-theme'); themeToggle.textContent = 'Dark Mode'; localStorage.setItem('theme', 'light'); } else { document.body.setAttribute('data-theme', 'dark'); themeToggle.textContent = 'Light Mode'; localStorage.setItem('theme', 'dark'); } drawGrid(); });
     
     // Muat tema yang tersimpan
     const savedTheme = localStorage.getItem('theme');
-    if (savedTheme === 'dark') { document.body.setAttribute('data-theme', 'dark'); themeToggle.textContent = 'Mode Terang'; } else { document.body.removeAttribute('data-theme'); themeToggle.textContent = 'Mode Gelap'; }
+    if (savedTheme === 'dark') { document.body.setAttribute('data-theme', 'dark'); themeToggle.textContent = 'Light Mode'; } else { document.body.removeAttribute('data-theme'); themeToggle.textContent = 'Dark Mode'; }
 
     // Panggilan Inisialisasi
     setupUIVisibility(); // Atur UI berdasarkan status admin
