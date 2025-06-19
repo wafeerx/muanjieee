@@ -509,22 +509,9 @@
                 selectedDot = dotClickedIndex;
                 updateToolbarButtonsVisibility();
                 drawGrid();
-            } else if (dotUnderMouseDownIndex === -1) {
-                // --- PERUBAHAN: ADMIN ---
-                // Hanya admin yang bisa menambah titik baru dengan klik
-                if (isAdmin) {
-                    const x = (clickX - offsetX) / zoom;
-                    const y = canvas.height - ((clickY - offsetY) / zoom);
-                    const newDot = { x, y, color: colorPicker.value };
-                    
-                    // Tambahkan dot dan catat ke history
-                    dots.push(newDot);
-                    addToHistory('add', { dot: newDot });
-                    saveToFirebase();
-                }
-                selectedDot = null;
-                updateToolbarButtonsVisibility();
-            }
+            } 
+            // Bagian 'else if' untuk menambah titik dengan klik/tap pada area kosong kanvas telah dihapus.
+            // Kini titik hanya bisa ditambahkan melalui tombol "Tambah Titik".
         }
         dotUnderMouseDownIndex = null; lastPinchDistance = null; isTouching = false;
     }
