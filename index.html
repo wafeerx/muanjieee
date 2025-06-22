@@ -2,11 +2,11 @@
 <html lang="id">
 <head>
   <meta charset="UTF-8">
-  <title>Advanced Dot Canvas (Admin Read-Only)</title>
+  <title>Advanced Dot Canvas (Under Maintenance)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
-    /* ... CSS sama seperti sebelumnya, tidak perlu diubah ... */
+    /* Existing CSS remains unchanged */
     :root {
       --primary-bg: #f0f0f0; --secondary-bg: #ffffff; --text-color: #333; --border-color: #ccc;
       --accent-color: #007bff; --button-bg: #e0e0e0; --button-hover-bg: #d0d0d0; --button-active-bg: #c0c0c0;
@@ -28,6 +28,7 @@
       padding: 15px; background: var(--primary-bg); font-family: 'Roboto', sans-serif;
       color: var(--text-color); transition: background-color 0.3s ease, color 0.3s ease;
       -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+      position: relative; /* Added for overlay positioning */
     }
     canvas {
       border: 2px solid var(--canvas-border); background-color: var(--canvas-bg); margin-top: 15px;
@@ -72,6 +73,43 @@
       min-width: 50px !important;
     }
     
+    /* New Maintenance Overlay CSS */
+    .maintenance-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.75);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    }
+    .maintenance-message {
+      background: var(--secondary-bg);
+      padding: 30px;
+      border-radius: 10px;
+      text-align: center;
+      color: var(--text-color);
+      max-width: 600px;
+      box-shadow: 0 4px 15px var(--shadow-color);
+    }
+    .maintenance-message h1 {
+      margin: 0 0 20px 0;
+      font-size: 24px;
+      color: var(--accent-color);
+    }
+    .maintenance-message p {
+      margin: 10px 0;
+      line-height: 1.6;
+      font-size: 16px;
+    }
+    .maintenance-message button {
+      margin-top: 20px;
+      cursor: pointer;
+    }
+    
     @media (max-width: 768px) {
       .toolbar label, .toolbar select, .toolbar button, .toolbar input { width: calc(50% - 4px); box-sizing: border-box; }
       .toolbar label { width: 100%; justify-content: center; }
@@ -81,6 +119,10 @@
       #deleteSelectedDotBtn, #changeSelectedDotColorBtn { width: 100%; }
       .button-group { width: calc(50% - 4px); }
       .half-button { width: calc(50% - 2px) !important; }
+      .maintenance-message {
+        max-width: 90%;
+        padding: 20px;
+      }
     }
     @media (max-width: 480px) {
       .toolbar { padding: 8px; gap: 6px; }
@@ -90,6 +132,16 @@
   </style>
 </head>
 <body>
+  <!-- Maintenance Overlay -->
+  <div class="maintenance-overlay" id="maintenanceOverlay">
+    <div class="maintenance-message">
+      <h1>MAINTENANCE</h1>
+      <p>If you still want to use this website, please always share the coordinates that have already been claimed in World Chat or DM to Manjirō.</p>
+      <p>Thank you for your cooperation!</p>
+      <button onclick="closeMaintenanceOverlay()">I Understand</button>
+    </div>
+  </div>
+
   <div class="toolbar">
     <label>Warna Titik (Admin):
       <select id="colorPicker">
@@ -192,6 +244,11 @@
     let history = [];
     let historyIndex = -1;
     let isUndoRedoAction = false; // Flag untuk mencegah penambahan ke history saat undo/redo
+
+    // Function to close maintenance overlay
+    function closeMaintenanceOverlay() {
+      document.getElementById('maintenanceOverlay').style.display = 'none';
+    }
 
     // Fungsi untuk menambahkan state ke history
     function addToHistory(action, data) {
