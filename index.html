@@ -612,24 +612,7 @@
                 selectedDot = dotClickedIndex;
                 updateToolbarButtonsVisibility();
                 drawGrid();
-            } else if (dotUnderMouseDownIndex === -1) {
-                // --- PERUBAHAN: ADMIN ---
-                // Hanya admin yang bisa menambah titik baru dengan klik
-                if (isAdmin) {
-                    const x = (clickX - offsetX) / zoom;
-                    const y = canvas.height - ((clickY - offsetY) / zoom);
-                    
-                    // --- FITUR BARU: Gunakan warna berdasarkan level ---
-                    const color = getColorByLevel(x, y);
-                    
-                    const newDot = { x, y, color };
-                    dots.push(newDot);
-                    addToHistory('add', { dot: newDot });
-                    saveToFirebase();
-                }
-                selectedDot = null;
-                updateToolbarButtonsVisibility();
-            }
+            } 
         }
         dotUnderMouseDownIndex = null; lastPinchDistance = null; isTouching = false;
     }
